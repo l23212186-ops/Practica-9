@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestión de Pacientes y Médicos</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div id="navbar"></div>
+
+    <div id="public-content" style="text-align: center;">
+        <h1>Bienvenido al Portal de Gestión de Pacientes</h1>
+        <p>Por favor, inicia sesión para acceder al sistema.</p>
+        
+        <img src="/Carrera.jpeg" alt="Imagen de bienvenida" style="width:100%; max-width:600px; height:auto; border-radius:8px; margin-top: 15px;">
+        
+        <p style="margin-top: 25px;">
+            <a href="/login.html" class="login-button">Ir a Iniciar Sesión</a>
+        </p>
+    </div>
+
+    <div id="medico-content" style="display:none;">
+        <h2>Registrar Paciente</h2>
+        <form action="/submit-data" method="POST">
+            <label for="name">Nombre del paciente:</label>
+            <input type="text" id="name" name="name">
+            
+            <label for="age">Edad:</label>
+            <input type="number" id="age" name="age">
+
+            <label for="heart-rate">Frecuencia Cardiaca (bpm):</label>
+            <input type="number" id="heart-rate" name="heart_rate">
+
+            <button type="submit">Guardar</button>
+        </form>
+        <button onclick="window.location.href='/pacientes'">Ver Pacientes Guardados</button>
+        
+        <hr>
+        
+        <h2>Buscar Pacientes</h2>
+        <form action="/buscar-pacientes" method="GET">
+            <label for="name-search">Nombre del paciente:</label>
+            <input type="text" id="name-search" name="name_search">
+            
+            <label for="age-search">Edad del paciente:</label>
+            <input type="number" id="age-search" name="age_search">
+            
+            <button type="submit">Buscar</button>
+        </form>
+        <button onclick="window.location.href='/ordenar-pacientes'">Ordenar por Frecuencia Cardiaca</button>
+        <hr>
+        <h2>Gestión por Lotes (Excel)</h2>
+
+        <h3>Importar Pacientes</h3>
+        <p>Sube un archivo .xlsx con las columnas: <strong>nombre</strong>, <strong>edad</strong>, <strong>frecuencia_cardiaca</strong>.</p>
+        <form action="/upload-pacientes" method="POST" enctype="multipart/form-data">
+            <label for="excel-file">Seleccionar archivo:</label>
+            <input type="file" id="excel-file" name="archivoExcel" accept=".xlsx" required>
+            <button type="submit">Subir e Importar</button>
+        </form>
+
+        <br>
+
+        <h3>Exportar Pacientes</h3>
+        <button onclick="window.location.href='/download-pacientes'">Descargar Reporte de Pacientes</button>
+    <div id="live-search-results"></div>
+
+    <div id="admin-content" style="display:none;">
+        <hr>
+        <h3>Registrar Médico</h3>
+        <form action="/insertar-medico" method="POST">
+            <label for="medico-name">Nombre del médico:</label>
+            <input type="text" id="medico-name" name="medico_name">
+
+            <label for="especialidad">Especialidad:</label>
+            <input type="text" id="especialidad" name="especialidad">
+
+            <button type="submit">Guardar Médico</button>
+        </form>
+        <button onclick="window.location.href='/medicos'">Ver Médicos Registrados</button>
+    </div>
+
+
+    <script>
+        fetch('/navbar.html')
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('navbar').innerHTML = data; 
+                return fetch('/tipo-usuario'); 
+            })
+            .then(response => {
+                if (!response.ok) { throw new Error('No autenticado'); }
+                return response.json();
+            })
+            .then(data => {
+                // Oculta el contenido público
+                document.getElementById('public-content').style.display = 'none';
+
+                const menu = document.getElementById('menu');
+                if (!menu) { return; } 
+
+                const tipoUsuario = data.tipo_usuario;
+
+                // --- LÓGICA DE ROLES ---
+                if (tipoUsuario === 'admin') {
+                    document.getElementById('medico-content').style.display = 'block';
+                    document.getElementById('admin-content').style.display = 'block';
+                    menu.innerHTML += '<li><a href="/ver-usuarios">Ver Usuarios</a></li>';
+                    menu.innerHTML += '<li><a href="/gestionar-registros">Gestionar Registros</a></li>';
+                    setupLiveSearch();
+                    
+                } else if (tipoUsuario === 'medico') {
+                    document.getElementById('medico-content').style.display = 'block';
+                    menu.innerHTML += '<li><a href="/pacientes">Ver Pacientes</a></li>'; 
+                    menu.innerHTML += '<li><a href="/editar-pacientes">Editar Pacientes</a></li>';
+                    setupLiveSearch();
+                
+                } else if (tipoUsuario === 'paciente') {
+                    menu.innerHTML += '<li><a href="/ver-mis-datos">Mis Datos</a></li>';
+                }
+                
+                menu.innerHTML += '<li><a href="/logout">Cerrar Sesión</a></li>';
+
+                // Esta función se llamará si el usuario es admin o médico
+            function setupLiveSearch() {
+            const searchInput = document.getElementById('name-search');
+            const resultsContainer = document.getElementById('live-search-results');
+
+            if (!searchInput) return; // Salir si el input no existe
+
+            // Evento 'keyup' como en la Práctica 9
+            searchInput.addEventListener('keyup', function() {
+                const term = this.value;
+
+                if (term.length < 2) { // No buscar si es muy corto
+                    resultsContainer.innerHTML = '';
+                    return;
+                }
+
+                // Usamos la nueva ruta del backend
+                fetch(`/buscar-pacientes-live?term=${term}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        resultsContainer.innerHTML = ''; // Limpiar resultados anteriores
+                        
+                        if (data.length === 0) {
+                            resultsContainer.innerHTML = '<p>No se encontraron coincidencias.</p>';
+                            return;
+                        }
+
+                        // Construir una mini-tabla o lista
+                        let html = '<ul>';
+                        data.forEach(paciente => {
+                            //
+                            html += `<li>${paciente.nombre} (Edad: ${paciente.edad}, FC: ${paciente.frecuencia_cardiaca})</li>`;
+                        });
+                        html += '</ul>';
+                        resultsContainer.appendChild(document.createRange().createContextualFragment(html));
+                    })
+                    .catch(err => {
+                        console.error('Error en fetch de búsqueda:', err);
+                        resultsContainer.innerHTML = '<p>Error al buscar.</p>';
+                    });
+            });
+        }
+            })
+            .catch(error => {
+                // Si no está logueado, muestra el enlace de login
+                const menu = document.getElementById('menu');
+                if (menu) {
+                    menu.innerHTML += '<li><a href="/login.html">Iniciar Sesión</a></li>';
+                }
+            });
+    </script>
+
+</body>
+</html>
