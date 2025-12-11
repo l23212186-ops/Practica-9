@@ -1,110 +1,196 @@
+/* --- Estilos Base --- */
 body {
-  font-family: Arial, sans-serif;
-  background-color: #f0f0f0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Fuente más moderna */
+  background-color: #f4f6f8;
+  margin: 0;
+  padding: 0;
+  color: #333;
 }
 
-h1 {
-  color: #000000;
+h1, h2, h3 {
+  color: #10156c;
   text-align: center;
+  margin-bottom: 20px;
 }
-form {
-  width: 300px;
-  margin: 0 auto;
-  padding: 20px;
+
+/* --- Navbar --- */
+nav {
+  background-color: #10156c;
+  color: white;
+  padding: 1rem 2rem;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+nav ul {
+  list-style-type: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+nav ul li {
+  margin-right: 20px;
+}
+
+nav ul li a {
+  color: white;
+  text-decoration: none;
+  padding: 8px 12px;
+  transition: background 0.3s;
+  border-radius: 4px;
+}
+
+nav ul li a:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* --- Contenedor Principal --- */
+.main-container {
+  max-width: 1200px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+
+/* --- Diseño de Grid (Dashboard) --- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); /* Responsivo */
+  gap: 25px;
+}
+
+/* --- Tarjetas (Cards) --- */
+.card {
   background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+  padding: 25px;
+  transition: transform 0.2s;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+}
+
+.card.full-width {
+  grid-column: 1 / -1; /* Ocupa todo el ancho */
+}
+
+/* --- Formularios --- */
+/* Nota: Sobrescribimos el width:300px de tu estilo anterior para que se adapte a la tarjeta */
+form {
+  width: 100%; 
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+  box-shadow: none;
+  box-sizing: border-box;
 }
 
 label {
   display: block;
-  margin: 10px 0 5px;
-  font-weight: bold;
+  margin: 15px 0 5px;
+  font-weight: 600;
+  color: #555;
+  font-size: 0.9rem;
 }
 
 input {
   width: 100%;
-  padding: 8px;
+  padding: 12px;
   margin-bottom: 10px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-sizing: border-box; /* Importante para que el padding no rompa el ancho */
+  font-size: 1rem;
 }
 
-button {
+input:focus {
+  border-color: #0ec2c8;
+  outline: none;
+}
+
+/* --- Botones --- */
+button, .btn {
   width: 100%;
-  padding: 10px;
+  padding: 12px;
   background-color: #0ec2c8;
   color: white;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
+  font-size: 1rem;
+  font-weight: bold;
+  transition: background 0.3s;
+  margin-top: 10px;
 }
 
-button:hover {
+button:hover, .btn:hover {
   background-color: #001a6f;
 }
 
-table {
-  width: 80%;
-  margin: 20px auto;
-  border-collapse: collapse;
+.btn-secondary {
+  background-color: #6c757d;
+  margin-top: 10px;
 }
 
-th, td {
-  padding: 12px;
-  text-align: left;
-  border-bottom: 1px solid #ddd;
+.btn-secondary:hover {
+  background-color: #5a6268;
 }
 
-th {
-  background-color: #0ec2c8;
-  color: white;
+/* --- Contenido Público (Bienvenida) --- */
+.welcome-box {
+  text-align: center;
+  background: white;
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+  max-width: 800px;
+  margin: 0 auto;
 }
 
-tr:hover {
-  background-color: #f5f5f5;
-}
-
-/* Estilo para el contenedor de la barra de navegación */
-nav {
-    background-color: #10156c;
-    color: white;
-    padding: 10px;
-}
-
-/* Estilo para los enlaces del menú */
-nav ul {
-    list-style-type: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-}
-
-nav ul li {
-    margin-right: 20px;
-}
-
-nav ul li a {
-    color: white;
-    text-decoration: none;
-    padding: 5px 10px;
-}
-
-nav ul li a:hover {
-    background-color: #555;
-    border-radius: 4px;
+.welcome-img {
+  width: 100%;
+  max-width: 500px;
+  height: auto;
+  border-radius: 12px;
+  margin: 20px 0;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
 
 .login-button {
   display: inline-block;
-  padding: 10px 20px;
-  background-color: #0ec2c8; /* Mismo color que tus botones */
+  padding: 12px 30px;
+  background-color: #0ec2c8;
   color: white;
-  text-decoration: none; /* Quita el subrayado del enlace */
-  border-radius: 4px;
+  text-decoration: none;
+  border-radius: 30px; /* Botón redondeado */
   font-weight: bold;
+  transition: transform 0.2s, background 0.3s;
 }
 
 .login-button:hover {
-  background-color: #001a6f; /* Mismo hover que tus botones */
+  background-color: #001a6f;
+  transform: scale(1.05);
+}
+
+/* --- Resultados de Búsqueda en Vivo --- */
+#live-search-results {
+  margin-top: 15px;
+}
+
+#live-search-results ul {
+  list-style: none;
+  padding: 0;
+  border: 1px solid #eee;
+  border-radius: 6px;
+}
+
+#live-search-results li {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  background: #f9f9f9;
+}
+#live-search-results li:last-child {
+  border-bottom: none;
 }

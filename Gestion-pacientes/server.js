@@ -3,18 +3,17 @@ const session = require('express-session');
 const bcrypt = require('bcrypt');
 const app = express();
 const path = require('path');
-const bodyParser = require('body-parser');
 const mysql = require('mysql2');
 const multer = require('multer'); 
 const xlsx = require('xlsx');
 require('dotenv').config();
 
-// Configuración de Multer para guardar en /uploads
+// Configuración de Multer
 const upload = multer({ dest: 'uploads/' });
 
 // Configuración de la sesión
 app.use(session({
-  secret: process.env.SESSION_SECRET,
+  secret: process.env.SESSION_SECRET || 'secret',
   resave: false,
   saveUninitialized: false,
 }));
@@ -38,52 +37,84 @@ connection.connect(err => {
   console.log('Conexión exitosa a MySQL');
 });
 
+function renderHTML(title, content) {
+    return `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${title}</title>
+        <link rel="stylesheet" href="/styles.css">
+        <style>
+            /* Estilos extra inyectados para Tablas y Mensajes */
+            .status-icon { font-size: 3rem; margin-bottom: 10px; display: block; }
+            .success { color: #28a745; }
+            .error { color: #dc3545; }
+            .warning { color: #ffc107; }
+            
+            .styled-table { width: 100%; border-collapse: collapse; margin: 25px 0; font-size: 0.9em; box-shadow: 0 0 20px rgba(0, 0, 0, 0.05); }
+            .styled-table thead tr { background-color: #10156c; color: #ffffff; text-align: left; }
+            .styled-table th, .styled-table td { padding: 12px 15px; }
+            .styled-table tbody tr { border-bottom: 1px solid #dddddd; }
+            .styled-table tbody tr:nth-of-type(even) { background-color: #f3f3f3; }
+            .styled-table tbody tr:last-of-type { border-bottom: 2px solid #0ec2c8; }
+            .styled-table tbody tr:hover { background-color: #e9fbfb; cursor: default; }
+            
+            .btn-xs { padding: 5px 10px; font-size: 0.8rem; margin: 0; width: auto; display: inline-block; }
+            .btn-danger { background-color: #dc3545; }
+            .btn-danger:hover { background-color: #c82333; }
+        </style>
+    </head>
+    <body>
+        <div id="navbar"></div>
+        <main class="main-container">
+            <section class="card full-width">
+                ${content}
+            </section>
+        </main>
+        <script>
+            fetch('/navbar.html')
+                .then(response => response.text())
+                .then(data => { document.getElementById('navbar').innerHTML = data; })
+                .catch(err => console.log('Error cargando menú'));
+        </script>
+    </body>
+    </html>`;
+}
+
 // Registro
 app.post('/registro', (req, res) => {
     const { nombre_usuario, password, codigo_acceso } = req.body;
-
     const query = 'SELECT tipo_usuario FROM codigos_acceso WHERE codigo = ?';
     
-    connection.query(query, [codigo_acceso], async (err, results) => { // <-- Se añade 'async' aquí
+    connection.query(query, [codigo_acceso], async (err, results) => { 
         if (err || results.length === 0) {
-            let html = `
-            <html>
-            <head>
-              <link rel="stylesheet" href="/styles.css">
-              <title>Error</title>
-            </head>
-            <body>
-              <h1>Codigo de acceso denegado</h1>
-              <button onclick="window.location.href='/registro.html'">Volver</button>
-            </body>
-            </html>
-            `;
-            return res.send(html);
+            return res.send(renderHTML('Acceso Denegado', `
+                <div style="text-align: center; padding: 20px;">
+                    <span class="status-icon error">❌</span>
+                    <h2 style="color: #dc3545;">Código Incorrecto</h2>
+                    <p>El código de acceso proporcionado no es válido.</p>
+                    <button onclick="window.location.href='/registro.html'" style="max-width:200px;">Intentar de nuevo</button>
+                </div>
+            `));
         }
 
         const tipo_usuario = results[0].tipo_usuario;
-
         const hashedPassword = await bcrypt.hash(password, 10);
-
         const insertUser = 'INSERT INTO usuarios (nombre_usuario, password_hash, tipo_usuario) VALUES (?, ?, ?)';
         
         connection.query(insertUser, [nombre_usuario, hashedPassword, tipo_usuario], (err) => {
             if (err) {
-                let html = `
-                <html>
-                <head>
-                  <link rel="stylesheet" href="/styles.css">
-                  <title>Error</title>
-                </head>
-                <body>
-                  <h1>Error al registrar usuario</h1>
-                  <button onclick="window.location.href='/registro.html'">Volver</button>
-                </body>
-                </html>
-                `;
-                return res.send(html);
+                return res.send(renderHTML('Error', `
+                    <div style="text-align: center; padding: 20px;">
+                        <span class="status-icon warning">⚠️</span>
+                        <h2>Usuario ya existente</h2>
+                        <p>El nombre de usuario ya está registrado.</p>
+                        <button onclick="window.location.href='/registro.html'" style="max-width:200px;">Volver</button>
+                    </div>
+                `));
             }
-            
             res.redirect('/login.html');
         });
     });
@@ -95,58 +126,23 @@ app.post('/login', (req, res) => {
     const query = 'SELECT * FROM usuarios WHERE nombre_usuario = ?';
     
     connection.query(query, [nombre_usuario], async (err, results) => { 
-        
-        if (err) {
-            let html = `
-            <html>
-            <head>
-              <link rel="stylesheet" href="/styles.css">
-              <title>Error</title>
-            </head>
-            <body>
-              <h1>Error al obtener el usuario</h1>
-              <button onclick="window.location.href='/login.html'">Volver</button>
-            </body>
-            </html>
-            `;
-            return res.send(html);
-        }
+        // Helper para errores de login
+        const sendLoginError = (msg) => res.send(renderHTML('Error de Ingreso', `
+            <div style="text-align: center; padding: 20px;">
+                <span class="status-icon error">🔒</span>
+                <h2>No pudimos iniciar sesión</h2>
+                <p>${msg}</p>
+                <button onclick="window.location.href='/login.html'" style="max-width:200px;">Reintentar</button>
+            </div>
+        `));
 
-        if (results.length === 0) {
-            let html = `
-            <html>
-            <head>
-              <link rel="stylesheet" href="/styles.css">
-              <title>Error</title>
-            </head>
-            <body>
-              <h1>Usuario no encontrado</h1>
-              <button onclick="window.location.href='/login.html'">Volver</button>
-            </body>
-            </html>
-            `;
-            return res.send(html);
-        }
+        if (err) return sendLoginError('Error interno del servidor.');
+        if (results.length === 0) return sendLoginError('El usuario no existe.');
 
         const user = results[0];
-
         const isPasswordValid = await bcrypt.compare(password, user.password_hash);
         
-        if (!isPasswordValid) {
-            let html = `
-            <html>
-            <head>
-              <link rel="stylesheet" href="/styles.css">
-              <title>Error</title>
-            </head>
-            <body>
-              <h1>Contraseña incorrecta</h1>
-              <button onclick="window.location.href='/login.html'">Volver</button>
-            </body>
-            </html>
-            `;
-            return res.send(html);
-        }
+        if (!isPasswordValid) return sendLoginError('La contraseña es incorrecta.');
 
         req.session.user = {
             id: user.id,
@@ -164,11 +160,9 @@ app.get('/logout', (req, res) => {
   res.redirect('/login.html');
 });
 
-// Middleware para verificar si el usuario está autenticado
+// Middlewares
 function requireLogin(req, res, next) {
-  if (!req.session.user) {
-    return res.redirect('/login.html');
-  }
+  if (!req.session.user) return res.redirect('/login.html');
   next();
 }
 
@@ -177,800 +171,367 @@ function requireRole(role) {
         if (req.session.user && req.session.user.tipo_usuario === role) {
             next();
         } else {
-            let html = `
-            <html>
-            <head>
-              <link rel="stylesheet" href="/styles.css">
-              <title>Error</title>
-            </head>
-            <body>
-              <h1>Acceso denegado</h1>
-              <button onclick="window.location.href='/'">Volver</button>
-            </body>
-            </html>
-            `;
-            return res.send(html);
+            res.send(renderHTML('Acceso Denegado', `
+                <div style="text-align: center;">
+                    <span class="status-icon error">🚫</span>
+                    <h1>Acceso Restringido</h1>
+                    <p>Necesitas ser <strong>${role}</strong> para ver esto.</p>
+                    <button onclick="window.location.href='/'" style="max-width:200px;">Ir al Inicio</button>
+                </div>
+            `));
         }
     };
 }
 
-// Middleware para permitir MÚLTIPLES roles
 function allowRoles(roles = []) {
   return (req, res, next) => {
-    // Verifica si el rol del usuario está INCLUIDO en la lista de roles permitidos
     if (req.session.user && roles.includes(req.session.user.tipo_usuario)) {
-      next(); // Permitido
+      next();
     } else {
-      // Reutiliza tu HTML de acceso denegado
-      let html = `
-      <html>
-      <head><link rel="stylesheet" href="/styles.css"><title>Error</title></head>
-      <body>
-        <h1>Acceso denegado</h1>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-      `;
-      return res.status(403).send(html);
+        res.status(403).send(renderHTML('Acceso Denegado', `
+            <div style="text-align: center;">
+                <span class="status-icon error">🚫</span>
+                <h1>Permiso Insuficiente</h1>
+                <p>Tu rol actual no tiene acceso a esta sección.</p>
+                <button onclick="window.location.href='/'" style="max-width:200px;">Ir al Inicio</button>
+            </div>
+        `));
     }
   };
 }
 
-// Ruta para descargar todos los pacientes en Excel
+// Descargar Excel
 app.get('/download-pacientes', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
-    
-    // 1. Obtener datos de la BDD
     const query = 'SELECT nombre, edad, frecuencia_cardiaca FROM pacientes';
     connection.query(query, (err, results) => {
-        if (err) {
-            console.error(err);
-            return res.send('Error al obtener datos para Excel.');
-        }
+        if (err || results.length === 0) return res.send('No hay datos para exportar.');
 
-        if (results.length === 0) {
-            return res.send('No hay pacientes para exportar.');
-        }
-
-        // 2. Convertir JSON a Hoja de Cálculo
         const worksheet = xlsx.utils.json_to_sheet(results);
-        
-        // 3. Crear un nuevo libro de trabajo
         const workbook = xlsx.utils.book_new();
-        xlsx.utils.book_append_sheet(workbook, worksheet, 'Pacientes'); // 'Pacientes' es el nombre de la pestaña
+        xlsx.utils.book_append_sheet(workbook, worksheet, 'Pacientes');
 
-        // 4. Escribir el archivo y enviarlo para descarga
         const filePath = path.join(__dirname, 'uploads', 'pacientes_export.xlsx');
         xlsx.writeFile(workbook, filePath);
-
-        // 5. Enviar el archivo al cliente
-        res.download(filePath, 'Reporte_Pacientes.xlsx', (err) => {
-            if (err) {
-                console.error('Error al descargar el archivo:', err);
-            }
-            // (Opcional) Puedes borrar el archivo del servidor después de descargarlo
-            // const fs = require('fs');
-            // fs.unlinkSync(filePath);
-        });
+        res.download(filePath, 'Reporte_Pacientes.xlsx');
     });
 });
 
-// Ruta para subir un archivo Excel e importar pacientes
+// Subir Excel
 app.post('/upload-pacientes', requireLogin, allowRoles(['admin', 'medico']), upload.single('archivoExcel'), (req, res) => {
-    
-    // 1. Multer ya guardó el archivo, su info está en req.file
-    if (!req.file) {
-        return res.send('No se seleccionó ningún archivo.');
-    }
-
-    const filePath = req.file.path;
+    if (!req.file) return res.send(renderHTML('Error', '<h2 style="text-align:center;">Falta archivo</h2><p style="text-align:center;">No seleccionaste ningún Excel.</p><div style="text-align:center;"><button onclick="window.location.href=\'/\'" style="width:auto;">Volver</button></div>'));
 
     try {
-        // 2. Leer el archivo Excel
-        const workbook = xlsx.readFile(filePath);
+        const workbook = xlsx.readFile(req.file.path);
         const sheetName = workbook.SheetNames[0];
         const data = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
-        if (data.length === 0) {
-            return res.send('El archivo Excel está vacío.');
-        }
+        if (data.length === 0) return res.send(renderHTML('Vacío', '<h2 style="text-align:center;">Archivo Vacío</h2>'));
 
-        // 3. Preparar los datos para la BDD
-        // Asumimos que el Excel tiene columnas "nombre", "edad", "frecuencia_cardiaca"
+        const values = data.map(row => [row.nombre, row.edad, row.frecuencia_cardiaca]);
         const query = 'INSERT INTO pacientes (nombre, edad, frecuencia_cardiaca) VALUES ?';
         
-        const values = data.map(row => [
-            row.nombre, 
-            row.edad, 
-            row.frecuencia_cardiaca
-        ]);
-
-        // 4. Insertar todos los datos en la BDD de una sola vez
         connection.query(query, [values], (err, result) => {
-            if (err) {
-                console.error(err);
-                let htmlError = `
-                  <html>
-                  <head>
-                    <title>Error</title>
-                    <link rel="stylesheet" href="/styles.css">
-                    <style>
-                      body { text-align: center; padding-top: 50px; }
-                      .container { max-width: 500px; margin: 0 auto; padding: 30px; background-color: #fff; border-radius: 8px; }
-                      p { font-size: 1.2rem; margin-bottom: 30px; }
-                    </style>
-                  </head>
-                  <body>
-                    <div class="container">
-                      <h1>Error al guardar</h1>
-                      <p>No se pudieron importar los datos del Excel. Verifique el formato.</p>
-                      <a href="/" class="login-button">Volver al Inicio</a>
-                    </div>
-                  </body>
-                  </html>
-                `;
-                return res.send(htmlError);
-            }
+            if (err) return res.send(renderHTML('Error', `<div style="text-align:center;"><span class="status-icon error">⚠️</span><h2>Error de Formato</h2><p>Verifica las columnas del Excel.</p><button onclick="window.location.href='/'" style="width:auto;">Volver</button></div>`));
 
-            let htmlExito = `
-              <html>
-              <head>
-                <title>Éxito</title>
-                <link rel="stylesheet" href="/styles.css">
-                <style>
-                  /* Estilos simples para centrar el contenido */
-                  body { text-align: center; padding-top: 50px; }
-                  .container {
-                    max-width: 500px;
-                    margin: 0 auto;
-                    padding: 30px;
-                    background-color: #fff;
-                    border-radius: 8px;
-                    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-                  }
-                  p {
-                    font-size: 1.2rem;
-                    margin-bottom: 30px;
-                  }
-                </style>
-              </head>
-              <body>
-                <div class="container">
-                  <h1>¡Éxito!</h1>
-                  <p>Se importaron ${result.affectedRows} pacientes.</p>
-                  
-                  <a href="/" class="login-button">Volver al Inicio</a>
+            res.send(renderHTML('Importación Exitosa', `
+                <div style="text-align: center;">
+                    <span class="status-icon success">✅</span>
+                    <h2>¡Importación Completada!</h2>
+                    <p>Se han añadido <strong>${result.affectedRows}</strong> pacientes a la base de datos.</p>
+                    <button onclick="window.location.href='/'" style="max-width:200px;">Continuar</button>
                 </div>
-              </body>
-              </html>
-            `;
-            res.send(htmlExito);
+            `));
         });
-
     } catch (error) {
-        console.error(error);
-        res.send('Error al procesar el archivo Excel.');
+        res.send(renderHTML('Error', 'Error procesando el archivo.'));
     }
 });
 
-// Ruta para obtener el tipo de usuario actual
 app.get('/tipo-usuario', requireLogin, (req, res) => {
-  const tipo = req.session.user.tipo_usuario;
   res.json({ tipo_usuario: req.session.user.tipo_usuario });
 });
 
-// Ruta para que solo admin pueda ver todos los usuarios (CON HTML)
+// Ver Usuarios (Tabla Estilizada)
 app.get('/ver-usuarios', requireLogin, allowRoles(['admin']), (req, res) => {
-    
-    // 1. Consulta SQL corregida: NUNCA selecciones el password_hash
-    const query = 'SELECT id, nombre_usuario, tipo_usuario FROM usuarios';
-    
-    connection.query(query, (err, results) => {
-        if (err) return res.send('Error al obtener usuarios');
+    connection.query('SELECT id, nombre_usuario, tipo_usuario FROM usuarios', (err, results) => {
+        if (err) return res.send('Error BD');
 
-        // 2. Construye la tabla HTML (similar a tu ruta /medicos)
-        let html = `
-          <html>
-          <head>
-            <link rel="stylesheet" href="/styles.css">
-            <title>Usuarios</title>
-          </head>
-          <body>
-            <h1>Usuarios Registrados</h1>
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Nombre de Usuario</th>
-                  <th>Tipo</th>
-                </tr>
-              </thead>
-              <tbody>
-        `;
-
-        results.forEach(usuario => {
-          html += `
-            <tr>
-              <td>${usuario.id}</td>
-              <td>${usuario.nombre_usuario}</td>
-              <td>${usuario.tipo_usuario}</td>
-            </tr>
-          `;
-        });
-
-        html += `
-              </tbody>
-            </table>
-            <button onclick="window.location.href='/'">Volver</button>
-          </body>
-          </html>
-        `;
+        let rows = results.map(u => `<tr><td>${u.id}</td><td><strong>${u.nombre_usuario}</strong></td><td><span style="background:#eee; padding:2px 6px; border-radius:4px;">${u.tipo_usuario}</span></td></tr>`).join('');
         
-        // 3. Envía el HTML
-        res.send(html);
+        res.send(renderHTML('Usuarios', `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h1>Usuarios del Sistema</h1>
+                <a href="/" class="login-button" style="padding: 8px 15px; width:auto;">Volver al Panel</a>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="styled-table">
+                    <thead><tr><th>ID</th><th>Usuario</th><th>Rol</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `));
     });
 });
 
-// Muestra la lista de pacientes con botones de Editar/Eliminar
+// Gestionar Registros (Tabla con Acciones)
 app.get('/gestionar-registros', requireLogin, allowRoles(['admin']), (req, res) => {
-    const query = 'SELECT * FROM pacientes';
-    connection.query(query, (err, results) => {
-        if (err) return res.send('Error al obtener pacientes');
+    connection.query('SELECT * FROM pacientes', (err, results) => {
+        if (err) return res.send('Error BD');
 
-        let html = `
-        <html>
-        <head>
-            <link rel="stylesheet" href="/styles.css"><title>Gestionar Registros</title>
-        </head>
-        <body>
-            <h1>Gestionar Registros de Pacientes (Admin)</h1>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Nombre</th>
-                        <th>Edad</th>
-                        <th>Frec. Cardiaca</th>
-                        <th>Editar</th>
-                        <th>Eliminar</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-        results.forEach(paciente => {
-            html += `
-                <tr>
-                    <td>${paciente.nombre}</td>
-                    <td>${paciente.edad}</td>
-                    <td>${paciente.frecuencia_cardiaca}</td>
-                    <td>
-                        <!-- Botón que lleva a la página de edición -->
-                        <a href="/editar-paciente/${paciente.id}">Editar</a>
-                    </td>
-                    <td>
-                        <!-- Formulario para eliminar (usa POST) -->
-                        <form action="/eliminar-paciente" method="POST" style="margin:0;">
-                            <input type="hidden" name="id_paciente" value="${paciente.id}">
-                            <button type="submit">Eliminar</button>
-                        </form>
-                    </td>
-                </tr>
-            `;
-        });
-        html += `
-                </tbody>
-            </table>
-            <button onclick="window.location.href='/'">Volver</button>
-        </body>
-        </html>
-        `;
-        res.send(html);
+        let rows = results.map(p => `
+            <tr>
+                <td>${p.nombre}</td>
+                <td>${p.edad}</td>
+                <td>${p.frecuencia_cardiaca} bpm</td>
+                <td>
+                    <a href="/editar-paciente/${p.id}" class="btn-xs" style="background-color:#0ec2c8; color:white; text-decoration:none; border-radius:4px;">Editar</a>
+                    <form action="/eliminar-paciente" method="POST" style="display:inline; margin-left:5px;">
+                        <input type="hidden" name="id_paciente" value="${p.id}">
+                        <button type="submit" class="btn-xs btn-danger">Borrar</button>
+                    </form>
+                </td>
+            </tr>
+        `).join('');
+
+        res.send(renderHTML('Gestión Total', `
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h1>Gestión de Registros</h1>
+                <a href="/" class="login-button" style="padding: 8px 15px; width:auto;">Volver</a>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="styled-table">
+                    <thead><tr><th>Nombre</th><th>Edad</th><th>Frecuencia C.</th><th>Acciones</th></tr></thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `));
     });
 });
 
-// Muestra la MISMA tabla que la ruta anterior.
+// Editar Pacientes (Misma tabla visual)
 app.get('/editar-pacientes', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
-    const query = 'SELECT * FROM pacientes';
-    connection.query(query, (err, results) => {
-        if (err) return res.send('Error al obtener pacientes');
+    connection.query('SELECT * FROM pacientes', (err, results) => {
+        if (err) return res.send('Error BD');
 
-        let html = `
-        <html>
-        <head>
-            <link rel="stylesheet" href="/styles.css"><title>Editar Pacientes</title>
-        </head>
-        <body>
-            <h1>Editar Pacientes</h1>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Nombre</th>
-                        <th>Edad</th>
-                        <th>Frec. Cardiaca</th>
-                        <th>Editar</th>
-                        <th>Eliminar</th>
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-        results.forEach(paciente => {
-            html += `
-                <tr>
-                    <td>${paciente.nombre}</td>
-                    <td>${paciente.edad}</td>
-                    <td>${paciente.frecuencia_cardiaca}</td>
-                    <td>
-                        <a href="/editar-paciente/${paciente.id}">Editar</a>
-                    </td>
-                    <td>
-                        <form action="/eliminar-paciente" method="POST" style="margin:0;">
-                            <input type="hidden" name="id_paciente" value="${paciente.id}">
-                            <button type="submit">Eliminar</button>
-                        </form>
-                    </td>
-                </tr>
-            `;
-        });
-        html += `
-                </tbody>
+        let rows = results.map(p => `
+            <tr>
+                <td>${p.nombre}</td>
+                <td>${p.edad}</td>
+                <td>${p.frecuencia_cardiaca}</td>
+                <td style="text-align:center;">
+                    <a href="/editar-paciente/${p.id}" class="btn-xs" style="background-color:#0ec2c8; color:white; text-decoration:none; border-radius:4px;">✏️ Editar</a>
+                    <form action="/eliminar-paciente" method="POST" style="display:inline; margin-left:10px;">
+                        <input type="hidden" name="id_paciente" value="${p.id}">
+                        <button type="submit" class="btn-xs btn-danger">🗑️</button>
+                    </form>
+                </td>
+            </tr>
+        `).join('');
+
+        res.send(renderHTML('Editar Pacientes', `
+            <h1 style="text-align:center;">Editar Lista de Pacientes</h1>
+            <table class="styled-table">
+                <thead><tr><th>Nombre</th><th>Edad</th><th>FC</th><th style="text-align:center;">Herramientas</th></tr></thead>
+                <tbody>${rows}</tbody>
             </table>
-            <button onclick="window.location.href='/'">Volver</button>
-        </body>
-        </html>
-        `;
-        res.send(html);
+            <div style="text-align:center; margin-top:20px;">
+                <button onclick="window.location.href='/'" class="btn-secondary" style="max-width:200px;">Volver al Inicio</button>
+            </div>
+        `));
     });
 });
 
-// Se activa cuando haces clic en el botón "Editar" de un paciente
+// Formulario de Edición
 app.get('/editar-paciente/:id', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
     const id = req.params.id;
-    const query = 'SELECT * FROM pacientes WHERE id = ?';
-    
-    connection.query(query, [id], (err, results) => {
-        if (err || results.length === 0) {
-            return res.send('Error: Paciente no encontrado.');
-        }
+    connection.query('SELECT * FROM pacientes WHERE id = ?', [id], (err, results) => {
+        if (err || results.length === 0) return res.send(renderHTML('No encontrado', '<h1>Paciente no existe</h1>'));
 
-        const paciente = results[0];
+        const p = results[0];
+        res.send(renderHTML('Editar Registro', `
+            <h1>Editando: <span style="color:#0ec2c8;">${p.nombre}</span></h1>
+            <div style="max-width: 500px; margin: 0 auto;">
+                <form action="/actualizar-paciente" method="POST" style="text-align:left;">
+                    <input type="hidden" name="id_paciente" value="${p.id}">
+                    
+                    <label>Nombre:</label>
+                    <input type="text" name="name" value="${p.nombre}" required>
+                    
+                    <label>Edad:</label>
+                    <input type="number" name="age" value="${p.edad}" required>
 
-        let html = `
-        <html>
-        <head>
-            <link rel="stylesheet" href="/styles.css"><title>Editando Paciente</title>
-        </head>
-        <body>
-            <h1>Editando a ${paciente.nombre}</h1>
-            
-            <!-- Este formulario envía los datos a /actualizar-paciente -->
-            <form action="/actualizar-paciente" method="POST">
-                
-                <!-- Input oculto para enviar la ID -->
-                <input type="hidden" name="id_paciente" value="${paciente.id}">
+                    <label>Frecuencia Cardiaca:</label>
+                    <input type="number" name="heart_rate" value="${p.frecuencia_cardiaca}" required>
 
-                <label for="name">Nombre del paciente:</label>
-                <input type="text" id="name" name="name" value="${paciente.nombre}">
-                
-                <label for="age">Edad:</label>
-                <input type="number" id="age" name="age" value="${paciente.edad}">
-
-                <label for="heart-rate">Frecuencia Cardiaca (bpm):</label>
-                <input type="number" id="heart-rate" name="heart_rate" value="${paciente.frecuencia_cardiaca}">
-
-                <button type="submit">Actualizar</button>
-            </form>
-            <button onclick="window.location.href='/editar-pacientes'">Cancelar</button>
-        </body>
-        </html>
-        `;
-        res.send(html);
+                    <button type="submit" style="margin-top:20px;">Guardar Cambios</button>
+                </form>
+                <button onclick="window.location.href='/editar-pacientes'" class="btn-secondary">Cancelar</button>
+            </div>
+        `));
     });
 });
 
-// Se activa cuando envías el formulario de edición
 app.post('/actualizar-paciente', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
-    // Obtenemos los datos del formulario (req.body)
     const { id_paciente, name, age, heart_rate } = req.body;
-
-    const query = 'UPDATE pacientes SET nombre = ?, edad = ?, frecuencia_cardiaca = ? WHERE id = ?';
-    
-    connection.query(query, [name, age, heart_rate, id_paciente], (err, result) => {
-        if (err) {
-            return res.send('Error al actualizar el paciente.');
-        }
-        // Redirigimos al usuario de vuelta a la lista
+    connection.query('UPDATE pacientes SET nombre = ?, edad = ?, frecuencia_cardiaca = ? WHERE id = ?', [name, age, heart_rate, id_paciente], (err) => {
+        if (err) return res.send('Error actualizando');
         res.redirect('/editar-pacientes');
     });
 });
 
-// Se activa cuando haces clic en el botón "Eliminar"
 app.post('/eliminar-paciente', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
-    // Obtenemos la ID del formulario oculto
-    const { id_paciente } = req.body;
-
-    const query = 'DELETE FROM pacientes WHERE id = ?';
-    
-    connection.query(query, [id_paciente], (err, result) => {
-        if (err) {
-            return res.send('Error al eliminar el paciente.');
-        }
-        // Redirigimos al usuario de vuelta a la lista
+    connection.query('DELETE FROM pacientes WHERE id = ?', [req.body.id_paciente], (err) => {
+        if (err) return res.send('Error eliminando');
         res.redirect('/editar-pacientes');
     });
 });
 
-// Ruta para que un paciente vea sus propios datos
+// Ver Mis Datos
 app.get('/ver-mis-datos', requireLogin, (req, res) => {
-    const nombreUsuario = req.session.user.nombre_usuario;
+    connection.query('SELECT * FROM pacientes WHERE nombre = ?', [req.session.user.nombre_usuario], (err, results) => {
+        if (err) return res.send('Error BD');
 
-    const query = 'SELECT * FROM pacientes WHERE nombre = ?';
-
-    connection.query(query, [nombreUsuario], (err, results) => {
-        if (err) {
-            return res.send('Error al obtener los datos.');
-        }
-
-        // 3. Construimos la página HTML
-        let html = `
-          <html>
-          <head>
-            <link rel="stylesheet" href="/styles.css">
-            <title>Mis Datos</title>
-          </head>
-          <body>
-            <h1>Mis Datos de Paciente</h1>
-        `;
-
-        // 4. Verificamos si encontramos un registro de paciente
         if (results.length > 0) {
-            const paciente = results[0]; // Solo mostramos el primer resultado
-            html += `
-              <table>
-                <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Edad</th>
-                    <th>Frecuencia Cardiaca (bpm)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>${paciente.nombre}</td>
-                    <td>${paciente.edad}</td>
-                    <td>${paciente.frecuencia_cardiaca}</td>
-                  </tr>
-                </tbody>
-              </table>
-            `;
+            const p = results[0];
+            res.send(renderHTML('Mi Expediente', `
+                <div style="text-align:center;">
+                    <h1>Hola, ${p.nombre}</h1>
+                    <p style="color:#666;">Aquí está tu información actual.</p>
+                </div>
+                <div style="background:#f9f9f9; padding:20px; border-radius:10px; margin:20px 0; border-left: 5px solid #0ec2c8;">
+                    <p><strong>Edad:</strong> ${p.edad} años</p>
+                    <p><strong>Frecuencia Cardiaca:</strong> ${p.frecuencia_cardiaca} bpm</p>
+                </div>
+                <div style="text-align:center;">
+                    <button onclick="window.location.href='/'" style="max-width:200px;">Volver</button>
+                </div>
+            `));
         } else {
-            // Si no hay paciente con ese nombre de usuario
-            html += `<p>No se encontraron datos de paciente asociados a tu usuario (${nombreUsuario}).</p>`;
+            res.send(renderHTML('Sin Datos', `
+                <div style="text-align:center;">
+                    <span class="status-icon warning">⚠️</span>
+                    <h2>Expediente no encontrado</h2>
+                    <p>No hay registros médicos asociados al usuario "${req.session.user.nombre_usuario}".</p>
+                    <button onclick="window.location.href='/'">Volver</button>
+                </div>
+            `));
         }
-
-        html += `
-            <br>
-            <button onclick="window.location.href='/'">Volver</button>
-          </body>
-          </html>
-        `;
-
-        res.send(html);
     });
 });
 
-// Servir archivos estáticos (HTML)
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
-// Ruta para la página principal
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Ruta para guardar datos en la base de datos
 app.post('/submit-data', allowRoles(['admin', 'medico']), (req, res) => {
   const { name, age, heart_rate } = req.body;
-
-  const query = 'INSERT INTO pacientes (nombre, edad, frecuencia_cardiaca) VALUES (?, ?, ?)';
-  connection.query(query, [name, age, heart_rate], (err, result) => {
-    if (err) {
-      let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Error</title>
-      </head>
-      <body>
-        <h1>Error al guardar paciente</h1>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
+  connection.query('INSERT INTO pacientes (nombre, edad, frecuencia_cardiaca) VALUES (?, ?, ?)', [name, age, heart_rate], (err) => {
+    if (err) return res.send(renderHTML('Error', '<h2 style="color:red;">Fallo al guardar</h2><button onclick="window.location.href=\'/\'">Volver</button>'));
     
-      return res.send(html);
-    }
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Correctamente</title>
-      </head>
-      <body>
-        <h1>Guardado Exitosamente</h1>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-    res.send(html);
+    res.send(renderHTML('Éxito', `
+        <div style="text-align:center;">
+            <span class="status-icon success">✅</span>
+            <h2>Guardado Correctamente</h2>
+            <p>El paciente <strong>${name}</strong> ha sido registrado.</p>
+            <button onclick="window.location.href='/'" style="max-width:200px;">Continuar</button>
+        </div>
+    `));
   });
 });
 
-// Ruta para ordenar pacientes por frecuencia cardiaca
+// Ordenar (Tabla Visual)
 app.get('/ordenar-pacientes', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
-  const query = 'SELECT * FROM pacientes ORDER BY frecuencia_cardiaca DESC';
-
-  connection.query(query, (err, results) => {
-    if (err) {
-      return res.send('Error al obtener los datos.');
-    }
-
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Pacientes Ordenados</title>
-      </head>
-      <body>
-        <h1>Pacientes Ordenados por Frecuencia Cardiaca</h1>
-        <table>
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Edad</th>
-              <th>Frecuencia Cardiaca (bpm)</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    results.forEach(paciente => {
-      html += `
-        <tr>
-          <td>${paciente.nombre}</td>
-          <td>${paciente.edad}</td>
-          <td>${paciente.frecuencia_cardiaca}</td>
-        </tr>
-      `;
-    });
-
-    html += `
-          </tbody>
+  connection.query('SELECT * FROM pacientes ORDER BY frecuencia_cardiaca DESC', (err, results) => {
+    let rows = results.map(p => `<tr><td>${p.nombre}</td><td>${p.edad}</td><td>${p.frecuencia_cardiaca}</td></tr>`).join('');
+    res.send(renderHTML('Ranking Cardíaco', `
+        <h1 style="text-align:center;">Pacientes por Frecuencia Cardiaca</h1>
+        <table class="styled-table">
+            <thead><tr><th>Nombre</th><th>Edad</th><th>BPM (Alta a Baja)</th></tr></thead>
+            <tbody>${rows}</tbody>
         </table>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-
-    res.send(html);
+        <div style="text-align:center;"><button onclick="window.location.href='/'" style="width:auto;">Volver</button></div>
+    `));
   });
 });
 
-// Ruta para mostrar los datos de la base de datos en formato HTML
+// Ver Lista Pacientes (Simple)
 app.get('/pacientes', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
   connection.query('SELECT * FROM pacientes', (err, results) => {
-    if (err) {
-      return res.send('Error al obtener los datos.');
-    }
-
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Pacientes</title>
-      </head>
-      <body>
-        <h1>Pacientes Registrados</h1>
-        <table>
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Edad</th>
-              <th>Frecuencia Cardiaca (bpm)</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    results.forEach(paciente => {
-      html += `
-        <tr>
-          <td>${paciente.nombre}</td>
-          <td>${paciente.edad}</td>
-          <td>${paciente.frecuencia_cardiaca}</td>
-        </tr>
-      `;
-    });
-
-    html += `
-          </tbody>
+    let rows = results.map(p => `<tr><td>${p.nombre}</td><td>${p.edad}</td><td>${p.frecuencia_cardiaca}</td></tr>`).join('');
+    res.send(renderHTML('Lista de Pacientes', `
+        <h1 style="text-align:center;">Listado Completo</h1>
+        <table class="styled-table">
+            <thead><tr><th>Nombre</th><th>Edad</th><th>Frecuencia</th></tr></thead>
+            <tbody>${rows}</tbody>
         </table>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-
-    res.send(html);
+        <div style="text-align:center;"><button onclick="window.location.href='/'" style="width:auto;">Volver</button></div>
+    `));
   });
 });
 
-// Ruta para buscar pacientes según filtros
+// Buscar (Resultados)
 app.get('/buscar-pacientes', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
   const { name_search, age_search } = req.query;
   let query = 'SELECT * FROM pacientes WHERE 1=1';
-
-  if (name_search) {
-    query += ` AND nombre LIKE '%${name_search}%'`;
-  }
-  if (age_search) {
-    query += ` AND edad = ${age_search}`;
-  }
+  if (name_search) query += ` AND nombre LIKE '%${name_search}%'`;
+  if (age_search) query += ` AND edad = ${age_search}`;
 
   connection.query(query, (err, results) => {
-    if (err) {
-      return res.send('Error al obtener los datos.');
-    }
+    let rows = results.length ? results.map(p => `<tr><td>${p.nombre}</td><td>${p.edad}</td><td>${p.frecuencia_cardiaca}</td></tr>`).join('') 
+                              : `<tr><td colspan="3" style="text-align:center; padding:20px;">No se encontraron coincidencias</td></tr>`;
 
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Resultados de Búsqueda</title>
-      </head>
-      <body>
-        <h1>Resultados de Búsqueda</h1>
-        <table>
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Edad</th>
-              <th>Frecuencia Cardiaca (bpm)</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    results.forEach(paciente => {
-      html += `
-        <tr>
-          <td>${paciente.nombre}</td>
-          <td>${paciente.edad}</td>
-          <td>${paciente.frecuencia_cardiaca}</td>
-        </tr>
-      `;
-    });
-
-    html += `
-          </tbody>
+    res.send(renderHTML('Resultados de Búsqueda', `
+        <h1 style="text-align:center;">Resultados</h1>
+        <table class="styled-table">
+            <thead><tr><th>Nombre</th><th>Edad</th><th>Frecuencia</th></tr></thead>
+            <tbody>${rows}</tbody>
         </table>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-
-    res.send(html);
+        <div style="text-align:center;"><button onclick="window.location.href='/'" style="width:auto;">Nueva Búsqueda</button></div>
+    `));
   });
 });
 
-// Ruta para búsqueda de pacientes en tiempo real (AJAX)
+// Búsqueda Live (API - No cambia visual, es JSON)
 app.get('/buscar-pacientes-live', requireLogin, allowRoles(['admin', 'medico']), (req, res) => {
   const searchTerm = req.query.term;
-
-  // Si no hay término de búsqueda, devolvemos un array vacío
-  if (!searchTerm) {
-    return res.json([]);
-  }
-
-  // Usamos LIKE para buscar coincidencias. LIMIT 10 es una buena práctica.
-  const query = "SELECT nombre, edad, frecuencia_cardiaca FROM pacientes WHERE nombre LIKE ? LIMIT 10";
-  
-  connection.query(query, [`%${searchTerm}%`], (err, results) => {
-    if (err) {
-      console.error('Error en búsqueda live:', err);
-      return res.status(500).json({ error: 'Error de base de datos' });
-    }
-    // Devolvemos los resultados como JSON
+  if (!searchTerm) return res.json([]);
+  connection.query("SELECT nombre, edad, frecuencia_cardiaca FROM pacientes WHERE nombre LIKE ? LIMIT 10", [`%${searchTerm}%`], (err, results) => {
+    if (err) return res.status(500).json([]);
     res.json(results);
   });
 });
 
-// Ruta para insertar un nuevo médico
+// Insertar Médico
 app.post('/insertar-medico', requireLogin, requireRole('admin'), (req, res) => {
   const { medico_name, especialidad } = req.body;
+  if (!medico_name || !especialidad) return res.send(renderHTML('Error', '<h2 style="text-align:center;">Datos Incompletos</h2><button onclick="window.location.href=\'/\'">Volver</button>'));
 
-  // 🔹 Validar campos vacíos
-  if (!medico_name || !especialidad) {
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Error</title>
-      </head>
-      <body>
-        <h1>Error: Debes llenar todos los campos.</h1>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-    return res.send(html);
-  }
-
-  const query = 'INSERT INTO medicos (nombre, especialidad) VALUES (?, ?)';
-
-  connection.query(query, [medico_name, especialidad], (err, result) => {
-
-    // 🔹 Inserción exitosa
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Éxito</title>
-      </head>
-      <body>
-        <h1>Médico ${medico_name} guardado exitosamente.</h1>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-    res.send(html);
+  connection.query('INSERT INTO medicos (nombre, especialidad) VALUES (?, ?)', [medico_name, especialidad], (err) => {
+    res.send(renderHTML('Médico Agregado', `
+        <div style="text-align:center;">
+            <span class="status-icon success">👨‍⚕️</span>
+            <h2>Médico Registrado</h2>
+            <p>El Dr./Dra. <strong>${medico_name}</strong> ha sido añadido.</p>
+            <button onclick="window.location.href='/'" style="width:auto;">Volver</button>
+        </div>
+    `));
   });
 });
 
-// Ruta para mostrar los datos de medicos de la base de datos en formato HTML
+// Ver Médicos
 app.get('/medicos', requireLogin, requireRole('admin'), (req, res) => {
   connection.query('SELECT * FROM medicos', (err, results) => {
-    if (err) {
-      return res.send('Error al obtener los datos.');
-    }
-
-    let html = `
-      <html>
-      <head>
-        <link rel="stylesheet" href="/styles.css">
-        <title>Medicos</title>
-      </head>
-      <body>
-        <h1>Medicos Registrados</h1>
-        <table>
-          <thead>
-            <tr>
-              <th>Nombre</th>
-              <th>Especialidad</th>
-            </tr>
-          </thead>
-          <tbody>
-    `;
-
-    results.forEach(medico => {
-      html += `
-        <tr>
-          <td>${medico.nombre}</td>
-          <td>${medico.especialidad}</td>
-        </tr>
-      `;
-    });
-
-    html += `
-          </tbody>
+    let rows = results.map(m => `<tr><td>${m.nombre}</td><td>${m.especialidad}</td></tr>`).join('');
+    res.send(renderHTML('Staff Médico', `
+        <h1 style="text-align:center;">Directorio de Médicos</h1>
+        <table class="styled-table">
+            <thead><tr><th>Nombre</th><th>Especialidad</th></tr></thead>
+            <tbody>${rows}</tbody>
         </table>
-        <button onclick="window.location.href='/'">Volver</button>
-      </body>
-      </html>
-    `;
-
-    res.send(html);
+        <div style="text-align:center;"><button onclick="window.location.href='/'" style="width:auto;">Volver</button></div>
+    `));
   });
 });
 
-
-// Iniciar el servidor
 app.listen(3000, () => {
   console.log('Servidor corriendo en http://localhost:3000');
 });
-

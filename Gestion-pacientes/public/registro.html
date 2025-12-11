@@ -1,21 +1,58 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <title>Registro de Usuario</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro de Usuario</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
-  <link rel="stylesheet" href="styles.css">
 <body>
-  <h2>Registro de Usuario</h2>
-<form action="/registro" method="POST">
-    <label for="nombre_usuario">Nombre de usuario:</label>
-    <input type="text" id="nombre_usuario" name="nombre_usuario" required>
-    <label for="password">Contraseña:</label>
-    <input type="password" id="password" name="password" required>
-    <label for="codigo_acceso">Código de acceso:</label>
-    <input type="text" id="codigo_acceso" name="codigo_acceso" required>
-    <button type="submit">Registrarse</button>
-</form>
-  <p>¿Ya tienes cuenta? <a href="/login.html">Inicia sesión</a></p>
+
+    <div id="navbar"></div>
+
+    <main class="main-container">
+
+        <div style="max-width: 400px; margin: 60px auto;">
+            
+            <section class="card">
+                <h2>Crear Cuenta Nueva</h2>
+                
+                <form action="/registro" method="POST">
+                    <label for="nombre_usuario">Nombre de usuario:</label>
+                    <input type="text" id="nombre_usuario" name="nombre_usuario" placeholder="Elige un usuario único" required>
+                    
+                    <label for="password">Contraseña:</label>
+                    <input type="password" id="password" name="password" placeholder="Crea una contraseña segura" required>
+                    
+                    <label for="codigo_acceso">Código de acceso:</label>
+                    <input type="text" id="codigo_acceso" name="codigo_acceso" placeholder="Código de rol (Ej: MED-2025)" required>
+                    <small style="color: #666; display: block; margin-top: -5px; margin-bottom: 15px; font-size: 0.85rem;">
+                        * Este código define si eres Médico o Paciente.
+                    </small>
+
+                    <button type="submit">Registrarse</button>
+                </form>
+
+                <hr style="margin: 25px 0; border: 0; border-top: 1px solid #eee;">
+
+                <div style="text-align: center;">
+                    <p style="margin-bottom: 10px; color: #666;">¿Ya tienes cuenta?</p>
+                    <a href="/login.html" style="color: #0ec2c8; font-weight: bold; text-decoration: none;">Inicia sesión aquí</a>
+                </div>
+            </section>
+
+        </div>
+
+    </main>
+
+    <script>
+        fetch('/navbar.html')
+            .then(response => response.text())
+            .then(data => {
+                document.getElementById('navbar').innerHTML = data;
+            })
+            .catch(err => console.log('Error cargando menú'));
+    </script>
+
 </body>
 </html>
